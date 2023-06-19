@@ -2,20 +2,26 @@ local M = {}
 M.config = {
   root_dir = "~/notes/zettelkasten", -- root dir for notes
   format = "md", -- file ending for notes
-  link_pattern = "%[%[([^%]]+)%]%]", -- pattern for matching links
+  link_pattern = "%[%[([^%]]+)%]%]", -- pattern for matching links, first group should match the link itself
   tag_pattern = "#([%w%-%_]+)", -- pattern for matching tags
   title_pattern = "^# (.*)$", -- pattern for matching title of file
   open_cmd = "edit", -- command used for opening files
 }
 
--- @alias ID string
-local function pathToId(path)
+function M.path_to_id(path)
   path = vim.fs.normalize(path)
   local id = vim.fs.basename(path)
   id = id:sub(1, id:len() - M.config.format:len() - 1)
 
   return id
 end
+
+-- @param id ID
+-- @return string
+function M.get_path(id)
+  return M.config.root_dir .. "/" .. id .. "." .. M.config.format
+end
+
 
 -- @alias ID string
 
@@ -55,9 +61,9 @@ end
 -- loads a node from a given path
 -- @param path string
 -- @return Node
-function Graph:addFromPath(path)
+function Graph:add_from_path(path)
   path = vim.fs.normalize(path)
-  local id = pathToId(path)
+  local id = M.path_to_id(path)
   self.nodes[id] = Node.new()
   self.nodes[id].id = id
 
@@ -75,7 +81,7 @@ function Graph:addFromPath(path)
       local link_target
       if not self.nodes[link_url] then
         local zettel_path = M.get_path(link_url)
-        link_target = self:addFromPath(zettel_path)
+        link_target = self:add_from_path(zettel_path)
       else
         link_target = self.nodes[link_url]
       end
@@ -128,9 +134,11 @@ M.get_link_under_cursor = function()
   local cursor = vim.api.nvim_win_get_cursor(0)
   local cursor_col = cursor[2] + 1
 
+  -- surround pattern in group to get the whole match
+  local pattern = "(" .. M.config.link_pattern .. ")"
   -- Iterate over matches and obtain start and end positions
-  for link_url in string.gmatch(line, M.config.link_pattern) do
-    local start_pos, end_pos = string.find(line, "[[" .. link_url .. "]]", 1, true)
+  for full_link, link_url in string.gmatch(line, pattern) do
+    local start_pos, end_pos = string.find(line, full_link, 1, true)
     if cursor_col >= start_pos and cursor_col <= end_pos then
       return link_url
     end
@@ -149,100 +157,12 @@ M.follow_link_under_cursor = function()
   vim.cmd(M.config.open_cmd .. " " .. full_path)
 end
 
--- @param id ID
--- @return string
-function M.get_path(id)
-  return M.config.root_dir .. "/" .. id .. "." .. M.config.format
-end
-
-M.pickers = {}
-
--- @param node Node
-local function nodeToEntry(node)
-  local title
-  if node.title then
-    title = node.title .. " (" .. node.id .. ")"
-  else
-    title = node.id
-  end
-  return {
-    display = title,
-    value = M.get_path(node.id),
-    ordinal = node.title or node.id,
-    id = node.id,
-  }
-end
-
--- @param type "incoming"|"outgoing"|"all"
--- @param action "insert"|"open"
-function M.pickers.zettel_picker(opts, type, action)
-  local pickers = require("telescope.pickers")
-  local finders = require("telescope.finders")
-  local actions = require("telescope.actions")
-  local action_state = require("telescope.actions.state")
-  local conf = require("telescope.config").values
-  opts = opts or { "list-names" }
-
+function M.get_current_node()
   local current_file_path = vim.api.nvim_buf_get_name(0)
-  local current_id = pathToId(current_file_path)
-  local current_node = M.graph.nodes[current_id]
-
-  local results = {}
-  if type == "incoming" then
-    results = current_node.incoming
-  elseif type == "outgoing" then
-    results = current_node.outgoing
-  elseif type == "all" then
-    for _, v in pairs(M.graph.nodes) do
-      results[#results + 1] = v
-    end
-  else
-    return
-  end
-
-  local finder = finders.new_table({
-    results = results,
-    entry_maker = nodeToEntry,
-  })
-
-
-  local default_action
-  if action == "insert" then
-    default_action = function(prompt_bufnr)
-      local id = action_state.get_selected_entry().id
-      local new_link = "[[" .. id .. "]]"
-
-      local mode = vim.api.nvim_get_mode().mode
-      actions.close(prompt_bufnr)
-      if mode == 'i' then
-        vim.api.nvim_put({ new_link }, 'b', true, true)
-        vim.api.nvim_feedkeys('a', 'n', true)
-      else
-        vim.api.nvim_put({ new_link }, '', true, true)
-      end
-    end
-  elseif action == "open" then
-    default_action = function(prompt_bufnr)
-      local id = action_state.get_selected_entry().id
-      local path = M.get_path(id)
-      actions.close(prompt_bufnr)
-      vim.cmd(M.config.open_cmd .. " " .. path)
-    end
-  end
-
-  pickers
-      .new(opts, {
-        prompt_title = "Zettelkasten " .. type,
-        finder = finder,
-        sorter = conf.generic_sorter(opts),
-        previewer = conf.file_previewer(opts),
-        attach_mappings = function(_, map)
-          actions.select_default:replace(default_action)
-          return true
-        end,
-      })
-      :find()
+  local current_id = M.path_to_id(current_file_path)
+  return M.graph.nodes[current_id]
 end
+
 
 function M.setup(opts)
   M.config.root_dir = opts.root_dir or M.config.root_dir
@@ -258,7 +178,7 @@ function M.setup(opts)
     for file in vim.fs.dir(M.config.root_dir) do
       file = vim.fs.normalize(M.config.root_dir .. "/" .. file)
       if vim.loop.fs_stat(file).type == "file" then
-        M.graph:addFromPath(file)
+        M.graph:add_from_path(file)
       end
     end
   end
@@ -269,12 +189,10 @@ function M.setup(opts)
     pattern = vim.fs.normalize(M.config.root_dir .. "/" .. "*" .. M.config.format),
     callback = function()
       local current_file_path = vim.api.nvim_buf_get_name(0)
-      M.graph:addFromPath(current_file_path)
+      M.graph:add_from_path(current_file_path)
     end,
     group = zettel_group,
   })
-
-  vim.notify("Zettelkasten loaded")
 end
 
 return M
