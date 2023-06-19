@@ -1,11 +1,11 @@
 local M = {}
 M.config = {
   root_dir = "~/notes/zettelkasten", -- root dir for notes
-  format = "md", -- file ending for notes
+  format = "md",                     -- file ending for notes
   link_pattern = "%[%[([^%]]+)%]%]", -- pattern for matching links, first group should match the link itself
-  tag_pattern = "#([%w%-%_]+)", -- pattern for matching tags
-  title_pattern = "^# (.*)$", -- pattern for matching title of file
-  open_cmd = "edit", -- command used for opening files
+  tag_pattern = "#([%w%-%_]+)",      -- pattern for matching tags
+  title_pattern = "^# (.*)$",        -- pattern for matching title of file
+  open_cmd = "edit",                 -- command used for opening files
 }
 
 function M.path_to_id(path)
@@ -19,9 +19,8 @@ end
 -- @param id ID
 -- @return string
 function M.get_path(id)
-  return M.config.root_dir .. "/" .. id .. "." .. M.config.format
+  return vim.fs.normalize(M.config.root_dir .. "/" .. id .. "." .. M.config.format)
 end
-
 
 -- @alias ID string
 
@@ -34,6 +33,16 @@ end
 local Node = {}
 Node.__index = Node
 
+function Node.new()
+  local self = setmetatable({}, Node)
+
+  self.outgoing = {}
+  self.incoming = {}
+  self.tags = {}
+
+  return self
+end
+
 -- @class Graph
 -- @field nodes { [string]: boolean }
 local Graph = {}
@@ -44,16 +53,6 @@ function Graph.new()
   local self = setmetatable({}, Graph)
 
   self.nodes = {}
-
-  return self
-end
-
-function Node.new()
-  local self = setmetatable({}, Node)
-
-  self.outgoing = {}
-  self.incoming = {}
-  self.tags = {}
 
   return self
 end
@@ -101,6 +100,29 @@ function Graph:add_from_path(path)
   end
 
   return self.nodes[id]
+end
+
+function Graph:get_nodes_by_tag(tag)
+  local nodes = {}
+  for _, node in pairs(self.nodes) do
+    if vim.tbl_contains(node.tags, tag) then
+      table.insert(nodes, node)
+    end
+  end
+  return nodes
+end
+
+-- @return string[]
+function Graph:get_all_tags()
+  local tags = {}
+  for _, node in pairs(self.nodes) do
+    for _, tag in pairs(node.tags) do
+      if not vim.tbl_contains(tags, tag) then
+        table.insert(tags, tag)
+      end
+    end
+  end
+  return tags
 end
 
 M.generate_name = function()
@@ -163,6 +185,15 @@ function M.get_current_node()
   return M.graph.nodes[current_id]
 end
 
+-- @param nodes Node[]
+function M.set_qflist(nodes)
+  local entries = {}
+  for _, node in pairs(nodes) do
+    local entry = { filename = M.get_path(node.id), lnum = 1, col = 1, text = node.title }
+    table.insert(entries, entry)
+  end
+  vim.fn.setqflist(entries)
+end
 
 function M.setup(opts)
   M.config.root_dir = opts.root_dir or M.config.root_dir
@@ -193,6 +224,12 @@ function M.setup(opts)
     end,
     group = zettel_group,
   })
+
+  vim.api.nvim_create_user_command("ZettelIn", function() M.set_qflist(M.get_current_node().incoming) end, {})
+  vim.api.nvim_create_user_command("ZettelOut", function() M.set_qflist(M.get_current_node().outgoing) end, {})
+  vim.api.nvim_create_user_command("ZettelAll", function() M.set_qflist(M.graph.nodes) end, {})
+  vim.api.nvim_create_user_command("ZettelTag", function(opts) M.set_qflist(M.graph:get_nodes_by_tag(opts.args)) end,
+    { nargs = 1, complete = function() return M.graph:get_all_tags() end})
 end
 
 return M

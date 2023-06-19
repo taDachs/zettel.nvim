@@ -83,6 +83,18 @@ local function insert_link_picker(opts)
   end):find()
 end
 
+local function tag_picker(opts)
+  opts = opts or { "list-names" }
+  local tag = vim.ui.input({ prompt = "Tag: " }, function(input)
+    if not tag then
+      return
+    end
+    local nodes = zettel.graph:get_nodes_by_tag(tag)
+    build_picker(opts, nodes):find()
+  end)
+end
+
+
 return require("telescope").register_extension({
   setup = function(ext_config, config)
     -- access extension config and user config
@@ -92,5 +104,6 @@ return require("telescope").register_extension({
     find_outgoing = outgoing_zettel_picker,
     find_all = all_zettel_picker,
     insert_link = insert_link_picker,
+    tag = tag_picker,
   },
 })

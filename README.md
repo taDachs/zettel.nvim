@@ -19,8 +19,7 @@
     },
     cond = function() -- so it only gets loaded in the note directory
       local current_file_path = vim.api.nvim_buf_get_name(0)
-      return current_file_path:match(".*/zettelkasten/.*")
-    end,
+      return current_file_path:match(".*/zettelkasten/.*") end,
     dependencies = { "nvim-telescope/telescope.nvim" },
 },
 ```
@@ -48,7 +47,9 @@ vim.api.nvim_create_autocmd({ "BufWinEnter", "BufRead", "BufNewFile" },
         { buffer = true })
       vim.keymap.set("n", "<leader>to",  "<cmd>Telescope zettel find_outgoing<CR>",
         { buffer = true })
-      vim.keymap.set("n", "<leader>ta",   "<cmd>Telescope zettel find_all<CR>",
+      vim.keymap.set("n", "<leader>tza",   "<cmd>Telescope zettel find_all<CR>",
+        { buffer = true })
+      vim.keymap.set("n", "<leader>tt",   "<cmd>Telescope zettel tag<CR>",
         { buffer = true })
       vim.keymap.set("i", "<c-[>", "<cmd>Telescope zettel insert_link<CR>",
         { buffer = true })
@@ -57,8 +58,12 @@ vim.api.nvim_create_autocmd({ "BufWinEnter", "BufRead", "BufNewFile" },
   })
 ```
 
+If you don't want to use Telescope you can use your quickfixlist with the
+`ZettelIn`, `ZettelOut`, `ZettelAll` and `ZettelTag` commands.
+
 ## TODO
 
-- [ ] telescope for tags
-- [ ] don't depend on telescope, provide commands for quickfixlist/loclist as well
+- [x] telescope for tags
+- [x] don't depend on telescope, provide commands for quickfixlist/loclist as well
+- [ ] preview for links?
 
